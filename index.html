@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Tony & Jo Catch Game</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #1a1a1a;
+            color: #ffffff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            max-width: 900px;
+            max-height: 506px;
+            background: linear-gradient(to bottom, #7ec0ee 0%, #b4e0ff 60%, #52b788 60%, #40916c 100%);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            overflow: hidden;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        #ui-overlay {
+            position: absolute;
+            top: 15px;
+            left: 0;
+            width: 100%;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            pointer-events: none;
+            font-weight: bold;
+            font-size: 18px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.6);
+            z-index: 5;
+        }
+        .badge {
+            background: rgba(0, 0, 0, 0.35);
+            padding: 8px 14px;
+            border-radius: 20px;
+            backdrop-filter: blur(4px);
+            border: 2px solid rgba(255,255,255,0.3);
+            pointer-events: auto;
+        }
+        #fullscreen-btn {
+            cursor: pointer;
+            background: rgba(0, 0, 0, 0.45);
+            border: 2px solid rgba(255,255,255,0.4);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 20px;
+            font-size: 15px;
+            font-weight: bold;
+            backdrop-filter: blur(4px);
+            pointer-events: auto;
+            transition: background 0.2s;
+        }
+        #fullscreen-btn:hover {
+            background: rgba(0, 0, 0, 0.65);
+        }
+        #instructions {
+            position: absolute;
+            bottom: 10px;
+            width: 100%;
+            text-align: center;
+            font-size: 14px;
+            color: rgba(255,255,255,0.8);
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+            pointer-events: none;
+            z-index: 5;
+        }
+        .touch-zone {
+            position: absolute;
+            top: 0;
+            width: 50vw;
+            height: 100vh;
+            z-index: 2;
+        }
+        #zone-left { left: 0; }
+        #zone-right { right: 0; }
+
+        /* Game Over Modal */
+        #game-over-modal {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 20;
+            backdrop-filter: blur(5px);
+        }
+        #game-over-modal h2 {
+            font-size: 36px;
+            margin: 0 0 10px 0;
+            color: #ff70a6;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+        }
+        #game-over-modal p {
+            font-size: 20px;
+            margin: 0 0 20px 0;
+        }
+        #restart-btn {
+            background: #2a9d8f;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 25px;
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            transition: background 0.2s;
+        }
+        #restart-btn:hover {
+            background: #21867a;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="zone-left" class="touch-zone"></div>
+    <div id="zone-right" class="touch-zone"></div>
+
+    <div id="ui-overlay">
+        <div class="badge" id="score-display">Score: 0</div>
+        <div class="badge" id="timer-display">Time: 2:00</div>
+        <button id="fullscreen-btn">Full Screen ⛶</button>
+        <div class="badge" id="streak-display">Streak: 0</div>
+    </div>
+
+    <canvas id="gameCanvas" width="900" height="506"></canvas>
+
+    <div id="instructions">Tap/Hold Left or Right side of screen (or Left/Right Arrows) to move Jo!</div>
+
+    <div id="game-over-modal">
+        <h2>Time's Up! 🎉</h2>
+        <p id="final-stats">Final Score: 0 | Best Streak: 0</p>
+        <button id="restart-btn">Play Again</button>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Fullscreen Toggle Logic
+    const fullscreenBtn = document.getElementById('fullscreen-btn');
+    fullscreenBtn.addEventListener('click', () => {
+        const container = document.getElementById('game-container');
+        if (!document.fullscreenElement) {
+            if (container.requestFullscreen) {
+                container.requestFullscreen();
+            } else if (container.webkitRequestFullscreen) {
+                container.webkitRequestFullscreen();
+            }
+        } else {
+            if (document.exitFullscreen) {
+                document.exitFullscreen();
+            } else if (document.webkitExitFullscreen) {
+                document.webkitExitFullscreen();
+            }
+        }
+    });
+
+    // Audio Context for Sound Effects
+    let audioCtx = null;
+    function initAudio() {
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+    }
+
+    function playTone(freq, type, duration, vol = 0.1) {
+        if (!audioCtx) return;
+        try {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + duration);
+        } catch(e) {}
+    }
+
+    const sfx = {
+        throw: () => {
+            initAudio();
+            if(!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(200, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(600, audioCtx.currentTime + 0.3);
+            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.3);
+        },
+        catch: () => {
+            initAudio();
+            playTone(587.33, 'triangle', 0.15, 0.15); // D5
+            setTimeout(() => playTone(880, 'triangle', 0.2, 0.15), 100); // A5
+        },
+        miss: () => {
+            initAudio();
+            playTone(180, 'sawtooth', 0.3, 0.15);
+            setTimeout(() => playTone(120, 'sawtooth', 0.4, 0.15), 150);
+        }
+    };
+
+    // Game State
+    let score = 0;
+    let bestStreak = 0;
+    let currentStreak = 0;
+    let gameTimeRemaining = 120; // 2 minutes in seconds
+    let isGameOver = false;
+
+    // Timer interval
+    const timerInterval = setInterval(() => {
+        if (!isGameOver) {
+            gameTimeRemaining--;
+            if (gameTimeRemaining <= 0) {
+                gameTimeRemaining = 0;
+                endGame();
+            }
+        }
+    }, 1000);
+
+    function endGame() {
+        isGameOver = true;
+        ball.active = false;
+        document.getElementById('final-stats').innerText = `Final Score: ${score} | Best Streak: ${bestStreak}`;
+        document.getElementById('game-over-modal').style.display = 'flex';
+    }
+
+    document.getElementById('restart-btn').addEventListener('click', () => {
+        score = 0;
+        currentStreak = 0;
+        bestStreak = 0;
+        gameTimeRemaining = 120;
+        isGameOver = false;
+        ball.speed = 0.012;
+        ball.active = false;
+        document.getElementById('game-over-modal').style.display = 'none';
+    });
+
+    // Tony (Thrower)
+    const tony = {
+        x: 140,
+        baseY: 340,
+        y: 340,
+        width: 70,
+        height: 170,
+        vx: 1.2,
+        minX: 80,
+        maxX: 240,
+        throwTimer: 0,
+        isThrowing: false,
+        blinkTimer: 0,
+        isBlinking: false
+    };
+
+    // Jo (Catcher)
+    const jo = {
+        x: 720,
+        y: 340,
+        width: 70,
+        height: 170,
+        speed: 5.5,
+        minX: 550,
+        maxX: 840,
+        blinkTimer: 0,
+        isBlinking: false
+    };
+
+    // Ball
+    const ball = {
+        active: false,
+        x: 0,
+        y: 0,
+        startX: 0,
+        startY: 0,
+        targetX: 0,
+        targetY: 0,
+        progress: 0,
+        speed: 0.012,
+        arcHeight: 160
+    };
+
+    // Controls
+    const keys = { left: false, right: false };
+
+    window.addEventListener('keydown', e => {
+        if (e.key === 'ArrowLeft' || e.key === 'a') keys.left = true;
+        if (e.key === 'ArrowRight' || e.key === 'd') keys.right = true;
+    });
+    window.addEventListener('keyup', e => {
+        if (e.key === 'ArrowLeft' || e.key === 'a') keys.left = false;
+        if (e.key === 'ArrowRight' || e.key === 'd') keys.right = false;
+    });
+
+    // Touch Zones
+    const zoneLeft = document.getElementById('zone-left');
+    const zoneRight = document.getElementById('zone-right');
+
+    zoneLeft.addEventListener('touchstart', e => { e.preventDefault(); keys.left = true; }, {passive: false});
+    zoneLeft.addEventListener('touchend', e => { e.preventDefault(); keys.left = false; }, {passive: false});
+    zoneRight.addEventListener('touchstart', e => { e.preventDefault(); keys.right = true; }, {passive: false});
+    zoneRight.addEventListener('touchend', e => { e.preventDefault(); keys.right = false; }, {passive: false});
+
+    zoneLeft.addEventListener('mousedown', () => { keys.left = true; });
+    zoneLeft.addEventListener('mouseup', () => { keys.left = false; });
+    zoneRight.addEventListener('mousedown', () => { keys.right = true; });
+    zoneRight.addEventListener('mouseup', () => { keys.right = false; });
+
+    function startThrow() {
+        if (isGameOver || ball.active) return;
+        ball.active = true;
+        ball.startX = tony.x + 30;
+        ball.startY = tony.y + 40;
+        ball.x = ball.startX;
+        ball.y = ball.startY;
+        
+        // Fully randomized target across Jo's entire movement zone so player must actively move to catch it
+        ball.targetX = jo.minX + Math.random() * (jo.maxX - jo.minX);
+        ball.targetY = jo.y + 40;
+        ball.progress = 0;
+        
+        tony.isThrowing = true;
+        setTimeout(() => { tony.isThrowing = false; }, 400);
+        sfx.throw();
+    }
+
+    function update() {
+        if (isGameOver) return;
+
+        // Update Jo movement
+        if (keys.left) jo.x -= jo.speed;
+        if (keys.right) jo.x += jo.speed;
+        if (jo.x < jo.minX) jo.x = jo.minX;
+        if (jo.x > jo.maxX) jo.x = jo.maxX;
+
+        // Update Tony movement
+        tony.x += tony.vx;
+        if (tony.x < tony.minX || tony.x > tony.maxX) {
+            tony.vx *= -1;
+        }
+
+        // Blinking timers
+        tony.blinkTimer++;
+        if (tony.blinkTimer > 180) {
+            tony.isBlinking = true;
+            if (tony.blinkTimer > 190) { tony.isBlinking = false; tony.blinkTimer = 0; }
+        }
+
+        jo.blinkTimer++;
+        if (jo.blinkTimer > 210) {
+            jo.isBlinking = true;
+            if (jo.blinkTimer > 220) { jo.isBlinking = false; jo.blinkTimer = 0; }
+        }
+
+        // Handle Ball Flight
+        if (ball.active) {
+            ball.progress += ball.speed;
+            if (ball.progress >= 1) {
+                ball.progress = 1;
+                ball.active = false;
+
+                const dist = Math.abs(ball.x - (jo.x + 25));
+                if (dist < 45) {
+                    score++;
+                    currentStreak++;
+                    if (currentStreak > bestStreak) bestStreak = currentStreak;
+                    sfx.catch();
+                    ball.speed = Math.min(0.025, ball.speed + 0.0008);
+                    setTimeout(startThrow, 600);
+                } else {
+                    currentStreak = 0;
+                    sfx.miss();
+                    ball.speed = 0.012;
+                    setTimeout(startThrow, 800);
+                }
+            } else {
+                ball.x = ball.startX + (ball.targetX - ball.startX) * ball.progress;
+                let baseCurrentY = ball.startY + (ball.targetY - ball.startY) * ball.progress;
+                let arc = -ball.arcHeight * 4 * ball.progress * (ball.progress - 1);
+                ball.y = baseCurrentY - arc;
+            }
+        } else {
+            tony.throwTimer++;
+            if (tony.throwTimer > 50) {
+                tony.throwTimer = 0;
+                startThrow();
+            }
+        }
+
+        // Update UI badges & Timer display
+        document.getElementById('score-display').innerText = `Score: ${score}`;
+        document.getElementById('streak-display').innerText = `Streak: ${currentStreak}`;
+        
+        let mins = Math.floor(gameTimeRemaining / 60);
+        let secs = gameTimeRemaining % 60;
+        document.getElementById('timer-display').innerText = `Time: ${mins}:${secs < 10 ? '0' : ''}${secs}`;
+    }
+
+    function drawScene() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Background park scenery
+        ctx.fillStyle = '#40916c';
+        ctx.beginPath();
+        ctx.arc(200, 310, 180, Math.PI, 0, false);
+        ctx.arc(700, 310, 220, Math.PI, 0, false);
+        ctx.fill();
+
+        drawTree(150, 240, 70, 130);
+        drawTree(780, 230, 80, 140);
+        drawTree(480, 260, 60, 110);
+
+        ctx.fillStyle = '#2d6a4f';
+        ctx.fillRect(0, 304, canvas.width, 202);
+
+        drawTony(tony.x, tony.y + Math.sin(Date.now() / 300) * 2, tony.isThrowing, tony.isBlinking);
+        drawJo(jo.x, jo.y + Math.cos(Date.now() / 300) * 2, jo.isBlinking);
+
+        if (ball.active) {
+            ctx.save();
+            ctx.translate(ball.x, ball.y);
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(0, 0, 14, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#1b4332';
+            ctx.lineWidth = 2.5;
+            ctx.stroke();
+
+            ctx.strokeStyle = '#0077b6';
+            ctx.beginPath();
+            ctx.arc(0, 0, 14, 0, Math.PI);
+            ctx.stroke();
+            ctx.restore();
+        }
+    }
+
+    function drawTree(x, y, r, h) {
+        ctx.fillStyle = '#1b4332';
+        ctx.fillRect(x - 10, y, 20, h);
+        ctx.fillStyle = '#52b788';
+        ctx.beginPath();
+        ctx.arc(x, y - 20, r, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    function drawTony(x, y, throwing, blinking) {
+        ctx.save();
+        ctx.translate(x, y);
+
+        ctx.fillStyle = '#1d3557';
+        ctx.fillRect(15, 60, 40, 70);
+        ctx.fillStyle = '#f1faee';
+        ctx.fillRect(30, 60, 10, 30);
+        ctx.fillStyle = '#2a9d8f';
+        ctx.beginPath();
+        ctx.moveTo(35, 65); ctx.lineTo(30, 95); ctx.lineTo(40, 95); ctx.fill();
+
+        ctx.fillStyle = '#1d3557';
+        ctx.fillRect(18, 130, 14, 40);
+        ctx.fillRect(38, 130, 14, 40);
+        ctx.fillStyle = '#111';
+        ctx.fillRect(12, 165, 22, 10);
+        ctx.fillRect(36, 165, 22, 10);
+
+        ctx.fillStyle = '#c68b59';
+        ctx.beginPath();
+        ctx.arc(35, 35, 20, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#2b2d42';
+        ctx.beginPath();
+        ctx.arc(35, 22, 19, Math.PI, 0, false);
+        ctx.fill();
+
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(23, 28, 11, 8);
+        ctx.strokeRect(36, 28, 11, 8);
+        ctx.beginPath(); ctx.moveTo(34, 32); ctx.lineTo(36, 32); ctx.stroke();
+
+        if (!blinking) {
+            ctx.fillStyle = '#111';
+            ctx.fillRect(27, 31, 3, 3);
+            ctx.fillRect(40, 31, 3, 3);
+        } else {
+            ctx.strokeStyle = '#111';
+            ctx.beginPath();
+            ctx.moveTo(27, 32); ctx.lineTo(30, 32);
+            ctx.moveTo(40, 32); ctx.lineTo(43, 32);
+            ctx.stroke();
+        }
+
+        ctx.strokeStyle = '#7c2d12';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(35, 42, 6, 0, Math.PI, false);
+        ctx.stroke();
+
+        ctx.fillStyle = '#1d3557';
+        if (throwing) {
+            ctx.fillRect(45, 25, 30, 14);
+        } else {
+            ctx.fillRect(40, 50, 14, 45);
+            ctx.fillRect(16, 50, 14, 45);
+        }
+
+        ctx.restore();
+    }
+
+    function drawJo(x, y, blinking) {
+        ctx.save();
+        ctx.translate(x, y);
+
+        // Dress
+        ctx.fillStyle = '#b5838d';
+        ctx.fillRect(15, 60, 42, 75);
+        ctx.fillStyle = '#e5989b';
+        ctx.fillRect(22, 75, 4, 4); ctx.fillRect(38, 90, 4, 4); ctx.fillRect(28, 110, 4, 4);
+
+        // Legs & Shoes
+        ctx.fillStyle = '#c68b59';
+        ctx.fillRect(21, 135, 10, 35);
+        ctx.fillRect(39, 135, 10, 35);
+        ctx.fillStyle = '#6b705c';
+        ctx.fillRect(17, 165, 16, 8);
+        ctx.fillRect(37, 165, 16, 8);
+
+        // Natural fuller hair style behind head & framing shoulders
+        ctx.fillStyle = '#222';
+        ctx.beginPath();
+        ctx.arc(35, 33, 24, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(15, 45, 8, 0, Math.PI * 2);
+        ctx.arc(55, 45, 8, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Head
+        ctx.fillStyle = '#a47148';
+        ctx.beginPath();
+        ctx.arc(35, 35, 20, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Pink Headband
+        ctx.strokeStyle = '#ff70a6';
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.arc(35, 35, 20, Math.PI * 0.85, Math.PI * 2.15, false);
+        ctx.stroke();
+
+        // Face details
+        if (!blinking) {
+            ctx.fillStyle = '#111';
+            ctx.beginPath();
+            ctx.arc(28, 33, 2.5, 0, Math.PI * 2);
+            ctx.arc(42, 33, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+        } else {
+            ctx.strokeStyle = '#111';
+            ctx.beginPath();
+            ctx.moveTo(26, 33); ctx.lineTo(30, 33);
+            ctx.moveTo(40, 33); ctx.lineTo(44, 33);
+            ctx.stroke();
+        }
+
+        // Smile
+        ctx.strokeStyle = '#582f0e';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(35, 42, 7, 0, Math.PI, false);
+        ctx.stroke();
+
+        // Reaching Arms
+        ctx.fillStyle = '#b5838d';
+        ctx.fillRect(-10, 55, 30, 14);
+
+        ctx.restore();
+    }
+
+    function gameLoop() {
+        update();
+        drawScene();
+        requestAnimationFrame(gameLoop);
+    }
+
+    requestAnimationFrame(gameLoop);
+</script>
+
+</body>
+</html>
